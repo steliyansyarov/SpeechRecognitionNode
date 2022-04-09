@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 
 import collections
+import deepspeech
 import os
 import os.path
-import queue
-import wave
-
-import deepspeech
-import numpy as np
 import pyaudio
+import queue
 import rospy
 import string
+import wave
 import webrtcvad
+
 from halo import Halo
+import numpy as np
 from pathlib import Path
 from scipy import signal
 from std_msgs.msg import String
@@ -30,6 +30,8 @@ class Audio(object):
     RATE_PROCESS = 16000
     CHANNELS = 1
     BLOCKS_PER_SECOND = 50
+
+    frame_duration_ms = property(lambda self: 1000 * self.block_size // self.sample_rate)
 
     def __init__(self, callback=None, device=None, input_rate=RATE_PROCESS, file=None):
         def proxy_callback(in_data, frame_count, time_info, status):
@@ -86,8 +88,7 @@ class Audio(object):
 
     def read_resampled(self):
         """Return a block of audio data resampled to 16000hz, blocking if necessary."""
-        return self.resample(data=self.buffer_queue.get(),
-                             input_rate=self.input_rate)
+        return self.resample(data=self.buffer_queue.get(), input_rate=self.input_rate)
 
     def read(self):
         """Return a block of audio data, blocking if necessary."""
@@ -97,8 +98,6 @@ class Audio(object):
         self.stream.stop_stream()
         self.stream.close()
         self.pa.terminate()
-
-    frame_duration_ms = property(lambda self: 1000 * self.block_size // self.sample_rate)
 
 
 class VADAudio(Audio):
@@ -117,11 +116,11 @@ class VADAudio(Audio):
             while True:
                 yield self.read_resampled()
 
-    def vad_collector(self, padding_ms=300, ratio=0.30, frames=None):
-        """Generator that yields series of consecutive audio frames comprising each utterence, separated by yielding a single None.
+    def vad_collector(self, padding_ms=300, ratio=0.50, frames=None):
+        """Generator that yields series of consecutive audio frames comprising each utterance, separated by yielding a single None.
             Determines voice activity by ratio of frames in padding_ms. Uses a buffer to include padding_ms prior to being triggered.
             Example: (frame, ..., frame, None, frame, ..., frame, None, ...)
-                      |---utterence---|        |---utterence---|
+                      |---utterance---|        |---utterance---|
         """
         if frames is None: frames = self.frame_generator()
         num_padding_frames = padding_ms // self.frame_duration_ms
@@ -154,6 +153,11 @@ class VADAudio(Audio):
 
 
 def clean_text(recognized_text):
+    """ Cleans the transcribed text from isolated letters. The only one-letter words in English are 'a' and 'I'.
+
+    :param recognized_text: the transcribed from the audio text
+    :return: the transcribed text without single isolated letters
+    """
     letters = list(string.ascii_lowercase)
     for letter in letters:
         if letter != 'a' and letter != 'i':
